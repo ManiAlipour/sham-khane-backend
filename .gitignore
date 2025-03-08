@@ -1,0 +1,9 @@
+/.vscode
+/node_modules
+/logs
+/uploads
+/config
+/docs
+/tests
+.env
+.env.local
