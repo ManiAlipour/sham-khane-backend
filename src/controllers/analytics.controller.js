@@ -1,6 +1,7 @@
 const Analytics = require("../models/analytics.model");
 const Order = require("../models/order.model");
 const User = require("../models/user.model");
+const Product = require("../models/product.model");
 
 // Helper function to get date range
 const getDateRange = (range) => {
@@ -29,43 +30,54 @@ const getDateRange = (range) => {
 // @access  Private/Admin
 exports.getDashboardStats = async (req, res, next) => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    const today = new Date();
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1);
 
-    const analytics = await Analytics.find({
-      date: { $gte: start, $lte: end },
-    }).sort("date");
+    // Get key metrics
+    const totalOrders = await Order.countDocuments();
+    const totalProducts = await Product.countDocuments();
+    const totalUsers = await User.countDocuments();
 
-    // Calculate summary statistics
-    const summary = {
-      totalSales: analytics.reduce((acc, day) => acc + day.sales.total, 0),
-      totalOrders: analytics.reduce((acc, day) => acc + day.sales.count, 0),
-      averageOrderValue: 0,
-      newUsers: analytics.reduce(
-        (acc, day) => acc + day.users.newRegistrations,
-        0
-      ),
-      pageViews: analytics.reduce((acc, day) => acc + day.traffic.pageViews, 0),
-      conversionRate: 0,
-    };
+    // Revenue statistics
+    const revenueStats = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: "$totalAmount" },
+          averageOrderValue: { $avg: "$totalAmount" },
+          maxOrderValue: { $max: "$totalAmount" },
+        },
+      },
+    ]);
 
-    // Calculate averages
-    if (summary.totalOrders > 0) {
-      summary.averageOrderValue = summary.totalSales / summary.totalOrders;
-    }
-
-    const totalVisitors = analytics.reduce(
-      (acc, day) => acc + day.traffic.uniqueVisitors,
-      0
-    );
-    if (totalVisitors > 0) {
-      summary.conversionRate = (summary.totalOrders / totalVisitors) * 100;
-    }
+    // Monthly revenue trend
+    const monthlyRevenue = await Order.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          revenue: { $sum: "$totalAmount" },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": -1, "_id.month": -1 } },
+      { $limit: 12 },
+    ]);
 
     res.status(200).json({
       success: true,
       data: {
-        summary,
-        dailyData: analytics,
+        metrics: {
+          totalOrders,
+          totalProducts,
+          totalUsers,
+          revenue: revenueStats[0] || { totalRevenue: 0, averageOrderValue: 0 },
+        },
+        trends: {
+          monthlyRevenue,
+        },
       },
     });
   } catch (err) {
@@ -78,17 +90,44 @@ exports.getDashboardStats = async (req, res, next) => {
 // @access  Private/Admin
 exports.getSalesAnalytics = async (req, res, next) => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    // Sales by product category
+    const salesByCategory = await Order.aggregate([
+      { $unwind: "$items" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "items.product",
+          foreignField: "_id",
+          as: "productInfo",
+        },
+      },
+      {
+        $group: {
+          _id: "$productInfo.category",
+          totalSales: { $sum: "$items.quantity" },
+          revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+        },
+      },
+    ]);
 
-    const salesData = await Analytics.find({
-      date: { $gte: start, $lte: end },
-    })
-      .select("date sales")
-      .sort("date");
+    // Sales by time of day
+    const salesByHour = await Order.aggregate([
+      {
+        $group: {
+          _id: { $hour: "$createdAt" },
+          count: { $sum: 1 },
+          revenue: { $sum: "$totalAmount" },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
 
     res.status(200).json({
       success: true,
-      data: salesData,
+      data: {
+        categoryAnalytics: salesByCategory,
+        hourlyDistribution: salesByHour,
+      },
     });
   } catch (err) {
     next(err);
@@ -100,18 +139,49 @@ exports.getSalesAnalytics = async (req, res, next) => {
 // @access  Private/Admin
 exports.getProductAnalytics = async (req, res, next) => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    // Most viewed products
+    const topViewedProducts = await Analytics.aggregate([
+      { $match: { type: "product_view" } },
+      {
+        $group: {
+          _id: "$productId",
+          viewCount: { $sum: 1 },
+        },
+      },
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id",
+          foreignField: "_id",
+          as: "productInfo",
+        },
+      },
+      { $sort: { viewCount: -1 } },
+      { $limit: 10 },
+    ]);
 
-    const productData = await Analytics.find({
-      date: { $gte: start, $lte: end },
-    })
-      .select("date products")
-      .populate("products.viewed.product products.purchased.product", "name")
-      .sort("date");
+    // Product conversion rates
+    const productConversion = await Analytics.aggregate([
+      {
+        $facet: {
+          views: [
+            { $match: { type: "product_view" } },
+            { $group: { _id: "$productId", views: { $sum: 1 } } },
+          ],
+          purchases: [
+            { $match: { type: "purchase" } },
+            { $group: { _id: "$productId", purchases: { $sum: 1 } } },
+          ],
+        },
+      },
+    ]);
 
     res.status(200).json({
       success: true,
-      data: productData,
+      data: {
+        topProducts: topViewedProducts,
+        conversionRates: productConversion,
+      },
     });
   } catch (err) {
     next(err);
@@ -123,17 +193,38 @@ exports.getProductAnalytics = async (req, res, next) => {
 // @access  Private/Admin
 exports.getUserAnalytics = async (req, res, next) => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    // User registration trend
+    const userGrowth = await User.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          newUsers: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": -1, "_id.month": -1 } },
+    ]);
 
-    const userData = await Analytics.find({
-      date: { $gte: start, $lte: end },
-    })
-      .select("date users")
-      .sort("date");
+    // User engagement metrics
+    const userEngagement = await Analytics.aggregate([
+      {
+        $group: {
+          _id: "$userId",
+          totalSessions: { $sum: 1 },
+          avgSessionDuration: { $avg: "$sessionDuration" },
+          lastActive: { $max: "$createdAt" },
+        },
+      },
+    ]);
 
     res.status(200).json({
       success: true,
-      data: userData,
+      data: {
+        growth: userGrowth,
+        engagement: userEngagement,
+      },
     });
   } catch (err) {
     next(err);
@@ -145,17 +236,42 @@ exports.getUserAnalytics = async (req, res, next) => {
 // @access  Private/Admin
 exports.getTrafficAnalytics = async (req, res, next) => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    // Page views by URL
+    const pageViews = await Analytics.aggregate([
+      { $match: { type: "pageview" } },
+      {
+        $group: {
+          _id: "$url",
+          views: { $sum: 1 },
+          uniqueVisitors: { $addToSet: "$userId" },
+        },
+      },
+      {
+        $project: {
+          url: "$_id",
+          views: 1,
+          uniqueVisitors: { $size: "$uniqueVisitors" },
+        },
+      },
+    ]);
 
-    const trafficData = await Analytics.find({
-      date: { $gte: start, $lte: end },
-    })
-      .select("date traffic")
-      .sort("date");
+    // Traffic sources
+    const trafficSources = await Analytics.aggregate([
+      { $match: { type: "pageview" } },
+      {
+        $group: {
+          _id: "$referrer",
+          visits: { $sum: 1 },
+        },
+      },
+    ]);
 
     res.status(200).json({
       success: true,
-      data: trafficData,
+      data: {
+        pageViews,
+        trafficSources,
+      },
     });
   } catch (err) {
     next(err);
@@ -208,28 +324,22 @@ exports.getDiscountAnalytics = async (req, res, next) => {
 
 // @desc    Track page view
 // @route   POST /api/analytics/track/pageview
-// @access  Private/Admin
+// @access  Public
 exports.trackPageView = async (req, res, next) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { url, referrer, userId } = req.body;
 
-    let analytics = await Analytics.findOne({ date: today });
-
-    if (!analytics) {
-      analytics = await Analytics.create({ date: today });
-    }
-
-    analytics.traffic.pageViews += 1;
-    if (req.body.isUnique) {
-      analytics.traffic.uniqueVisitors += 1;
-    }
-
-    await analytics.save();
+    await Analytics.create({
+      type: "pageview",
+      url,
+      referrer,
+      userId,
+      timestamp: new Date(),
+    });
 
     res.status(200).json({
       success: true,
-      data: analytics,
+      message: "Page view tracked",
     });
   } catch (err) {
     next(err);
@@ -238,36 +348,22 @@ exports.trackPageView = async (req, res, next) => {
 
 // @desc    Track product view
 // @route   POST /api/analytics/track/product/:id
-// @access  Private/Admin
+// @access  Public
 exports.trackProductView = async (req, res, next) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { id } = req.params;
+    const { userId } = req.body;
 
-    let analytics = await Analytics.findOne({ date: today });
-
-    if (!analytics) {
-      analytics = await Analytics.create({ date: today });
-    }
-
-    const productIndex = analytics.products.viewed.findIndex(
-      (item) => item.product.toString() === req.params.id
-    );
-
-    if (productIndex > -1) {
-      analytics.products.viewed[productIndex].count += 1;
-    } else {
-      analytics.products.viewed.push({
-        product: req.params.id,
-        count: 1,
-      });
-    }
-
-    await analytics.save();
+    await Analytics.create({
+      type: "product_view",
+      productId: id,
+      userId,
+      timestamp: new Date(),
+    });
 
     res.status(200).json({
       success: true,
-      data: analytics,
+      message: "Product view tracked",
     });
   } catch (err) {
     next(err);
