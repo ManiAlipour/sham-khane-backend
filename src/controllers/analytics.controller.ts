@@ -1,38 +1,181 @@
-const Analytics = require("../models/analytics.model");
-const Order = require("../models/order.model");
-const User = require("../models/user.model");
-const Product = require("../models/product.model");
+import type {
+  Request,
+  Response,
+  NextFunction,
+} from "express-serve-static-core";
+import type { ParsedQs } from "qs";
+import Analytics from "../models/analytics.model";
+import Order from "../models/order.model";
+import User from "../models/user.model";
+import Product from "../models/product.model";
+import { AppError } from "../middleware/error.middleware";
+
+interface AnalyticsQuery extends ParsedQs {
+  range?: string;
+}
+
+interface PageViewBody {
+  url: string;
+  referrer?: string;
+  userId?: string;
+}
+
+interface ProductViewBody {
+  userId?: string;
+}
 
 // Helper function to get date range
-const getDateRange = (range) => {
-  const end = new Date();
-  const start = new Date();
+const getDateRange = (
+  range: string | undefined
+): { startDate: Date; endDate: Date } => {
+  const endDate = new Date();
+  const startDate = new Date();
 
   switch (range) {
+    case "day":
+      startDate.setDate(endDate.getDate() - 1);
+      break;
     case "week":
-      start.setDate(start.getDate() - 7);
+      startDate.setDate(endDate.getDate() - 7);
       break;
     case "month":
-      start.setMonth(start.getMonth() - 1);
+      startDate.setMonth(endDate.getMonth() - 1);
       break;
     case "year":
-      start.setFullYear(start.getFullYear() - 1);
+      startDate.setFullYear(endDate.getFullYear() - 1);
       break;
     default:
-      start.setDate(start.getDate() - 30); // Default to last 30 days
+      startDate.setDate(endDate.getDate() - 1); // Default to day
   }
 
-  return { start, end };
+  return { startDate, endDate };
+};
+
+// @desc    Get analytics data
+// @route   GET /api/analytics
+// @access  Private/Admin
+export const getAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, AnalyticsQuery>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { range = "day" } = req.query;
+    const { startDate, endDate } = getDateRange(range as string);
+
+    const analytics = await Analytics.find({
+      date: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+    }).sort({ date: 1 });
+
+    const summary = {
+      totalSales: 0,
+      totalOrders: 0,
+      averageOrderValue: 0,
+      userRegistrations: 0,
+      conversionRate: 0,
+    };
+
+    analytics.forEach((record) => {
+      summary.totalSales += record.totalSales;
+      summary.totalOrders += record.totalOrders;
+      summary.userRegistrations += record.userRegistrations;
+    });
+
+    summary.averageOrderValue =
+      summary.totalOrders > 0 ? summary.totalSales / summary.totalOrders : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        analytics,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Generate daily analytics
+// @route   POST /api/analytics/generate
+// @access  Private/Admin
+export const generateAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get orders for today
+    const orders = await Order.find({
+      createdAt: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Calculate analytics data
+    const totalSales = orders.reduce(
+      (sum, order) => sum + order.totalAmount,
+      0
+    );
+    const totalOrders = orders.length;
+    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+
+    // Get new user registrations
+    const userRegistrations = await User.countDocuments({
+      createdAt: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Calculate conversion rate (orders / user visits)
+    const totalVisits = await User.countDocuments({
+      lastVisit: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+      },
+    });
+    const conversionRate =
+      totalVisits > 0 ? (totalOrders / totalVisits) * 100 : 0;
+
+    // Create or update analytics record
+    const analytics = await Analytics.findOneAndUpdate(
+      { date: today },
+      {
+        totalSales,
+        totalOrders,
+        averageOrderValue,
+        userRegistrations,
+        conversionRate,
+      },
+      { upsert: true, new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: analytics,
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // @desc    Get dashboard statistics
 // @route   GET /api/analytics/dashboard
 // @access  Private/Admin
-exports.getDashboardStats = async (req, res, next) => {
+export const getDashboardStats = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    const today = new Date();
-    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1);
-
     // Get key metrics
     const totalOrders = await Order.countDocuments();
     const totalProducts = await Product.countDocuments();
@@ -88,7 +231,11 @@ exports.getDashboardStats = async (req, res, next) => {
 // @desc    Get sales analytics
 // @route   GET /api/analytics/sales
 // @access  Private/Admin
-exports.getSalesAnalytics = async (req, res, next) => {
+export const getSalesAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     // Sales by product category
     const salesByCategory = await Order.aggregate([
@@ -137,7 +284,11 @@ exports.getSalesAnalytics = async (req, res, next) => {
 // @desc    Get product analytics
 // @route   GET /api/analytics/products
 // @access  Private/Admin
-exports.getProductAnalytics = async (req, res, next) => {
+export const getProductAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     // Most viewed products
     const topViewedProducts = await Analytics.aggregate([
@@ -191,7 +342,11 @@ exports.getProductAnalytics = async (req, res, next) => {
 // @desc    Get user analytics
 // @route   GET /api/analytics/users
 // @access  Private/Admin
-exports.getUserAnalytics = async (req, res, next) => {
+export const getUserAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     // User registration trend
     const userGrowth = await User.aggregate([
@@ -234,7 +389,11 @@ exports.getUserAnalytics = async (req, res, next) => {
 // @desc    Get traffic analytics
 // @route   GET /api/analytics/traffic
 // @access  Private/Admin
-exports.getTrafficAnalytics = async (req, res, next) => {
+export const getTrafficAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     // Page views by URL
     const pageViews = await Analytics.aggregate([
@@ -281,12 +440,16 @@ exports.getTrafficAnalytics = async (req, res, next) => {
 // @desc    Get cart analytics
 // @route   GET /api/analytics/cart
 // @access  Private/Admin
-exports.getCartAnalytics = async (req, res, next) => {
+export const getCartAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, AnalyticsQuery>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    const { startDate, endDate } = getDateRange(req.query.range);
 
     const cartData = await Analytics.find({
-      date: { $gte: start, $lte: end },
+      date: { $gte: startDate, $lte: endDate },
     })
       .select("date cart")
       .sort("date");
@@ -303,12 +466,16 @@ exports.getCartAnalytics = async (req, res, next) => {
 // @desc    Get discount analytics
 // @route   GET /api/analytics/discounts
 // @access  Private/Admin
-exports.getDiscountAnalytics = async (req, res, next) => {
+export const getDiscountAnalytics = async (
+  req: Request<Record<string, never>, unknown, unknown, AnalyticsQuery>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    const { start, end } = getDateRange(req.query.range);
+    const { startDate, endDate } = getDateRange(req.query.range);
 
     const discountData = await Analytics.find({
-      date: { $gte: start, $lte: end },
+      date: { $gte: startDate, $lte: endDate },
     })
       .select("date discounts")
       .sort("date");
@@ -325,7 +492,11 @@ exports.getDiscountAnalytics = async (req, res, next) => {
 // @desc    Track page view
 // @route   POST /api/analytics/track/pageview
 // @access  Public
-exports.trackPageView = async (req, res, next) => {
+export const trackPageView = async (
+  req: Request<Record<string, never>, unknown, PageViewBody, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const { url, referrer, userId } = req.body;
 
@@ -349,7 +520,11 @@ exports.trackPageView = async (req, res, next) => {
 // @desc    Track product view
 // @route   POST /api/analytics/track/product/:id
 // @access  Public
-exports.trackProductView = async (req, res, next) => {
+export const trackProductView = async (
+  req: Request<{ id: string }, unknown, ProductViewBody, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const { id } = req.params;
     const { userId } = req.body;
@@ -373,7 +548,16 @@ exports.trackProductView = async (req, res, next) => {
 // @desc    Track cart action
 // @route   POST /api/analytics/track/cart/:action
 // @access  Private/Admin
-exports.trackCartAction = async (req, res, next) => {
+export const trackCartAction = async (
+  req: Request<
+    { action: "created" | "abandoned" | "converted" },
+    unknown,
+    unknown,
+    unknown
+  >,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -381,7 +565,14 @@ exports.trackCartAction = async (req, res, next) => {
     let analytics = await Analytics.findOne({ date: today });
 
     if (!analytics) {
-      analytics = await Analytics.create({ date: today });
+      analytics = await Analytics.create({
+        date: today,
+        cart: { created: 0, abandoned: 0, converted: 0 },
+      });
+    }
+
+    if (!analytics.cart) {
+      analytics.cart = { created: 0, abandoned: 0, converted: 0 };
     }
 
     switch (req.params.action) {
@@ -395,10 +586,7 @@ exports.trackCartAction = async (req, res, next) => {
         analytics.cart.converted += 1;
         break;
       default:
-        return res.status(400).json({
-          success: false,
-          message: "Invalid cart action",
-        });
+        throw new AppError("Invalid cart action", 400);
     }
 
     await analytics.save();

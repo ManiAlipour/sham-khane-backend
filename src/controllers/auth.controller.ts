@@ -1,16 +1,56 @@
-const crypto = require("crypto");
-const { validationResult } = require("express-validator");
-const User = require("../models/user.model");
-const sendEmail = require("../utils/sendEmail");
+import crypto from "crypto";
+import { validationResult } from "express-validator";
+import type {
+  Request,
+  Response,
+  NextFunction,
+} from "express-serve-static-core";
+import User from "../models/user.model";
+import sendEmail from "../utils/email";
+
+interface RegisterBody {
+  name: string;
+  email: string;
+  password: string;
+}
+
+interface LoginBody {
+  email: string;
+  password: string;
+}
+
+interface ForgotPasswordBody {
+  email: string;
+}
+
+interface ResetPasswordBody {
+  password: string;
+}
+
+interface UpdatePasswordBody {
+  currentPassword: string;
+  newPassword: string;
+}
+
+interface AuthenticatedRequest extends Omit<Request, "user"> {
+  user: {
+    id: string;
+  };
+}
 
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-exports.register = async (req, res, next) => {
+export const register = async (
+  req: Request<Record<string, never>, unknown, RegisterBody>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const { name, email, password } = req.body;
@@ -18,10 +58,11 @@ exports.register = async (req, res, next) => {
     // Check if user exists
     let user = await User.findOne({ email });
     if (user) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "User already exists",
       });
+      return;
     }
 
     // Create verification token
@@ -58,11 +99,16 @@ exports.register = async (req, res, next) => {
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-exports.login = async (req, res, next) => {
+export const login = async (
+  req: Request<Record<string, never>, unknown, LoginBody>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const { email, password } = req.body;
@@ -70,19 +116,21 @@ exports.login = async (req, res, next) => {
     // Check for user
     const user = await User.findOne({ email }).select("+password");
     if (!user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "Invalid credentials",
       });
+      return;
     }
 
     // Check if password matches
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "Invalid credentials",
       });
+      return;
     }
 
     sendTokenResponse(user, 200, res);
@@ -94,7 +142,11 @@ exports.login = async (req, res, next) => {
 // @desc    Log user out / clear cookie
 // @route   GET /api/auth/logout
 // @access  Private
-exports.logout = async (req, res, next) => {
+export const logout = async (
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+): Promise<void> => {
   res.status(200).json({
     success: true,
     message: "Successfully logged out",
@@ -104,7 +156,11 @@ exports.logout = async (req, res, next) => {
 // @desc    Get current logged in user
 // @route   GET /api/auth/me
 // @access  Private
-exports.getMe = async (req, res, next) => {
+export const getMe = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findById(req.user.id);
     res.status(200).json({
@@ -119,32 +175,47 @@ exports.getMe = async (req, res, next) => {
 // @desc    Forgot password
 // @route   POST /api/auth/forgotpassword
 // @access  Public
-exports.forgotPassword = async (req, res, next) => {
+export const forgotPassword = async (
+  req: Request<Record<string, never>, unknown, ForgotPasswordBody>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findOne({ email: req.body.email });
 
     if (!user) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "There is no user with that email",
       });
+      return;
     }
 
     // Get reset token
     const resetToken = user.getResetPasswordToken();
+
     await user.save({ validateBeforeSave: false });
 
     // Create reset url
     const resetUrl = `${req.protocol}://${req.get(
       "host"
     )}/api/auth/resetpassword/${resetToken}`;
-    const message = `You are receiving this email because you (or someone else) has requested the reset of a password. Please make a PUT request to: ${resetUrl}`;
+
+    const message = `You are receiving this email because you (or someone else) has requested the reset of a password. 
+    Please click on the following link to reset your password: \n\n ${resetUrl}`;
 
     try {
       await sendEmail({
         email: user.email,
         subject: "Password reset token",
         message,
+        html: `
+          <h1>Password Reset Request</h1>
+          <p>You are receiving this email because you (or someone else) has requested the reset of a password.</p>
+          <p>Please click on the following link to reset your password:</p>
+          <a href="${resetUrl}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a>
+          <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
+        `,
       });
 
       res.status(200).json({
@@ -152,11 +223,13 @@ exports.forgotPassword = async (req, res, next) => {
         message: "Email sent",
       });
     } catch (err) {
+      console.log(err);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
+
       await user.save({ validateBeforeSave: false });
 
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: "Email could not be sent",
       });
@@ -169,7 +242,11 @@ exports.forgotPassword = async (req, res, next) => {
 // @desc    Reset password
 // @route   PUT /api/auth/resetpassword/:resettoken
 // @access  Public
-exports.resetPassword = async (req, res, next) => {
+export const resetPassword = async (
+  req: Request<{ resettoken: string }, unknown, ResetPasswordBody>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     // Get hashed token
     const resetPasswordToken = crypto
@@ -183,10 +260,11 @@ exports.resetPassword = async (req, res, next) => {
     });
 
     if (!user) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
-        message: "Invalid token",
+        message: "Invalid or expired token",
       });
+      return;
     }
 
     // Set new password
@@ -195,7 +273,14 @@ exports.resetPassword = async (req, res, next) => {
     user.resetPasswordExpire = undefined;
     await user.save();
 
-    sendTokenResponse(user, 200, res);
+    // Send token
+    const token = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      token,
+      message: "Password reset successful",
+    });
   } catch (err) {
     next(err);
   }
@@ -204,17 +289,30 @@ exports.resetPassword = async (req, res, next) => {
 // @desc    Update password
 // @route   PUT /api/auth/updatepassword
 // @access  Private
-exports.updatePassword = async (req, res, next) => {
+export const updatePassword = async (
+  req: AuthenticatedRequest & { body: UpdatePasswordBody },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findById(req.user.id).select("+password");
+
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
 
     // Check current password
     const isMatch = await user.matchPassword(req.body.currentPassword);
     if (!isMatch) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "Password is incorrect",
       });
+      return;
     }
 
     user.password = req.body.newPassword;
@@ -229,7 +327,11 @@ exports.updatePassword = async (req, res, next) => {
 // @desc    Verify email
 // @route   GET /api/auth/verify-email/:token
 // @access  Public
-exports.verifyEmail = async (req, res, next) => {
+export const verifyEmail = async (
+  req: Request<{ token: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findOne({
       verificationToken: req.params.token,
@@ -237,10 +339,11 @@ exports.verifyEmail = async (req, res, next) => {
     });
 
     if (!user) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
-        message: "Invalid token",
+        message: "Invalid or expired token",
       });
+      return;
     }
 
     user.isEmailVerified = true;
@@ -257,9 +360,11 @@ exports.verifyEmail = async (req, res, next) => {
   }
 };
 
-// Get token from model, create cookie and send response
-const sendTokenResponse = (user, statusCode, res) => {
-  // Create token
+const sendTokenResponse = (
+  user: any,
+  statusCode: number,
+  res: Response
+): void => {
   const token = user.getSignedJwtToken();
 
   res.status(statusCode).json({

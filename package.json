@@ -1,27 +1,51 @@
 {
   "name": "sham-khane",
   "version": "1.0.0",
-  "description": "E-commerce store API with Express and MongoDB",
-  "main": "src/server.js",
+  "description": "E-commerce API with Node.js, Express, and MongoDB",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "watch-ts": "tsc -w",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
   },
+  "keywords": [
+    "ecommerce",
+    "api",
+    "nodejs",
+    "express",
+    "mongodb",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^8.1.1",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
-    "dotenv": "^16.3.1",
     "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
     "express-validator": "^7.0.1",
-    "nodemailer": "^6.9.8",
-    "morgan": "^1.10.0",
-    "helmet": "^7.1.0",
-    "express-rate-limit": "^7.1.5",
-    "multer": "^1.4.5-lts.1"
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^7.1.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/mongoose": "^5.11.97",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.17.24",
+    "@types/nodemailer": "^6.4.17",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "eslint": "^8.40.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.2"
   }
-} 
+}
