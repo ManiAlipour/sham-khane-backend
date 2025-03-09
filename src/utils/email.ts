@@ -1,4 +1,11 @@
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
+
+interface EmailOptions {
+  email: string;
+  subject: string;
+  message: string;
+  html?: string;
+}
 
 const createTransporter = async () => {
   try {
@@ -23,7 +30,7 @@ const createTransporter = async () => {
   }
 };
 
-const sendEmail = async (options) => {
+const sendEmail = async (options: EmailOptions): Promise<void> => {
   try {
     const transporter = await createTransporter();
 
@@ -37,11 +44,12 @@ const sendEmail = async (options) => {
 
     const info = await transporter.sendMail(message);
     console.log("Email sent successfully:", info.messageId);
-    return info;
   } catch (error) {
     console.error("Email sending error:", error);
-    throw new Error(error.message || "Email could not be sent");
+    throw new Error(
+      error instanceof Error ? error.message : "Email could not be sent"
+    );
   }
 };
 
-module.exports = sendEmail;
+export default sendEmail;
