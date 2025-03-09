@@ -1,162 +1,114 @@
-# E-commerce Store API
+# Sham-Khane Backend
 
-A comprehensive RESTful API for an e-commerce store built with Node.js, Express, and MongoDB.
+A robust e-commerce backend built with Node.js, Express, and TypeScript, featuring user authentication, product management, shopping cart functionality, and analytics.
 
 ## Features
 
-- User authentication and authorization
-- Product management
-- Shopping cart functionality
-- Discount code system
-- Order processing
-- Analytics tracking
-- Email notifications
+- 🔐 **Authentication & Authorization**
+
+  - JWT-based authentication
+  - Role-based access control (Admin/User)
+  - Password reset functionality
+  - Email verification
+
+- 🛍️ **Product Management**
+
+  - CRUD operations for products
+  - Product categories
+  - Product reviews and ratings
+  - Image upload support
+
+- 🛒 **Shopping Cart**
+
+  - Add/remove items
+  - Update quantities
+  - Price calculations
+  - Discount code support
+
+- 📊 **Analytics**
+  - Sales analytics
+  - User behavior tracking
+  - Product performance metrics
+  - Cart analytics
 
 ## Tech Stack
 
 - Node.js
 - Express.js
+- TypeScript
 - MongoDB with Mongoose
 - JWT for authentication
-- Nodemailer for emails
-- Express Validator for input validation
 - Multer for file uploads
+- Express Validator for input validation
 
-## Prerequisites
+## Getting Started
 
-- Node.js (v14 or higher)
-- MongoDB
-- npm or yarn
+1. **Clone the repository**
 
-## Installation
+   ```bash
+   git clone https://github.com/ManiAlipour/sham-khane-backend.git
+   cd sham-khane-backend
+   ```
 
-1. Clone the repository:
+2. **Install dependencies**
 
-```bash
-git clone <repository-url>
-cd sham-khane
-```
+   ```bash
+   npm install
+   ```
 
-2. Install dependencies:
+3. **Set up environment variables**
+   Create a `.env` file in the root directory and add:
 
-```bash
-npm install
-```
+   ```env
+   PORT=5000
+   MONGODB_URI=your_mongodb_uri
+   JWT_SECRET=your_jwt_secret
+   JWT_EXPIRE=30d
+   ```
 
-3. Create a `.env` file in the root directory and add your environment variables:
+4. **Start the development server**
+   ```bash
+   npm run dev
+   ```
 
-```env
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/sham-khane
-JWT_SECRET=your_jwt_secret_key_here
-JWT_EXPIRE=7d
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_email_password
-NODE_ENV=development
-```
+## API Documentation
 
-4. Start the server:
-
-```bash
-# Development mode
-npm run dev
-
-# Production mode
-npm start
-```
-
-## API Endpoints
-
-### Authentication
+### Auth Routes
 
 - `POST /api/auth/register` - Register a new user
 - `POST /api/auth/login` - Login user
-- `GET /api/auth/logout` - Logout user
-- `GET /api/auth/me` - Get current user
-- `POST /api/auth/forgotpassword` - Request password reset
-- `PUT /api/auth/resetpassword/:resettoken` - Reset password
-- `PUT /api/auth/updatepassword` - Update password
-- `GET /api/auth/verify-email/:token` - Verify email
+- `POST /api/auth/forgot-password` - Request password reset
+- `PUT /api/auth/reset-password` - Reset password
 
-### Products
+### Product Routes
 
 - `GET /api/products` - Get all products
+- `POST /api/products` - Create a product (Admin)
 - `GET /api/products/:id` - Get single product
-- `POST /api/products` - Create new product (Admin)
 - `PUT /api/products/:id` - Update product (Admin)
 - `DELETE /api/products/:id` - Delete product (Admin)
-- `POST /api/products/:id/images` - Upload product images (Admin)
-- `GET /api/products/search/:query` - Search products
-- `GET /api/products/featured` - Get featured products
 
-### Cart
+### Cart Routes
 
 - `GET /api/cart` - Get user's cart
-- `POST /api/cart/items` - Add item to cart
-- `PUT /api/cart/items/:itemId` - Update cart item
-- `DELETE /api/cart/items/:itemId` - Remove item from cart
-- `DELETE /api/cart` - Clear cart
-- `POST /api/cart/discount` - Apply discount code
+- `POST /api/cart` - Add item to cart
+- `PUT /api/cart/:itemId` - Update cart item
+- `DELETE /api/cart/:itemId` - Remove item from cart
 
-### Discounts
+### Analytics Routes (Admin Only)
 
-- `GET /api/discounts` - Get all discounts (Admin)
-- `GET /api/discounts/:id` - Get single discount (Admin)
-- `POST /api/discounts` - Create new discount (Admin)
-- `PUT /api/discounts/:id` - Update discount (Admin)
-- `DELETE /api/discounts/:id` - Delete discount (Admin)
-- `POST /api/discounts/validate` - Validate discount code
-
-### Analytics (Admin only)
-
-- `GET /api/analytics/dashboard` - Get dashboard statistics
+- `GET /api/analytics/dashboard` - Get dashboard stats
 - `GET /api/analytics/sales` - Get sales analytics
 - `GET /api/analytics/products` - Get product analytics
-- `GET /api/analytics/users` - Get user analytics
-- `GET /api/analytics/traffic` - Get traffic analytics
-- `GET /api/analytics/cart` - Get cart analytics
-- `GET /api/analytics/discounts` - Get discount analytics
-- `POST /api/analytics/track/pageview` - Track page view
-- `POST /api/analytics/track/product/:id` - Track product view
-- `POST /api/analytics/track/cart/:action` - Track cart action
-
-## Authentication
-
-The API uses JWT (JSON Web Tokens) for authentication. To access protected routes, include the JWT token in the Authorization header:
-
-```http
-Authorization: Bearer <your_token_here>
-```
-
-## Error Handling
-
-The API returns consistent error responses in the following format:
-
-```json
-{
-  "success": false,
-  "message": "Error message here"
-}
-```
-
-## Rate Limiting
-
-The API implements rate limiting to prevent abuse. Each IP is limited to 100 requests per 15 minutes.
-
-## File Upload
-
-Product images can be uploaded using multipart/form-data. The API accepts up to 5 images per product, with a size limit of 1MB per image.
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

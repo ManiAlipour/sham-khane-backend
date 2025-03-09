@@ -29,11 +29,35 @@ export interface IProduct extends Document {
   description: string;
   price: number;
   category: string;
-  stock: number;
+  brand: string;
   images: string[];
+  stock: number;
   rating: number;
   numReviews: number;
+  featured: boolean;
   createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ICartItem extends Document {
+  product: IProduct["_id"];
+  quantity: number;
+  price: number;
+  totalPrice: number;
+}
+
+export interface ICart extends Document {
+  user: IUser["_id"];
+  items: ICartItem[];
+  totalItems: number;
+  subtotal: number;
+  discount: {
+    code: string | null;
+    amount: number;
+  };
+  total: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface IOrder extends Document {
@@ -53,6 +77,7 @@ export interface IOrder extends Document {
   totalAmount: number;
   status: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
   paymentStatus: "pending" | "completed" | "failed";
+  paymentMethod: string;
   createdAt: Date;
   updatedAt: Date;
 }

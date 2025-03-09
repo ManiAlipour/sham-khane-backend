@@ -1,8 +1,6 @@
-const express = require("express");
-const router = express.Router();
-const { protect, authorize } = require("../middleware/auth.middleware");
-
-const {
+import * as express from "express";
+import { protect, authorize } from "../middleware/auth.middleware";
+import {
   getDashboardStats,
   getSalesAnalytics,
   getProductAnalytics,
@@ -13,7 +11,9 @@ const {
   trackPageView,
   trackProductView,
   trackCartAction,
-} = require("../controllers/analytics.controller");
+} from "../controllers/analytics.controller";
+
+const router = express.Router();
 
 // All routes require authentication and admin access
 router.use(protect);
@@ -33,4 +33,4 @@ router.post("/track/pageview", trackPageView);
 router.post("/track/product/:id", trackProductView);
 router.post("/track/cart/:action", trackCartAction);
 
-module.exports = router;
+export default router;

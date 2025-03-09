@@ -1,9 +1,10 @@
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+import mongoose, { Schema } from "mongoose";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { IUser } from "../types/models";
 
-const userSchema = new mongoose.Schema({
+const userSchema: Schema = new Schema({
   name: {
     type: String,
     required: [true, "Please add a name"],
@@ -56,7 +57,7 @@ const userSchema = new mongoose.Schema({
 });
 
 // Encrypt password using bcrypt
-userSchema.pre("save", async function (next) {
+userSchema.pre<IUser>("save", async function (next) {
   if (!this.isModified("password")) {
     next();
   }
@@ -65,19 +66,25 @@ userSchema.pre("save", async function (next) {
 });
 
 // Sign JWT and return
-userSchema.methods.getSignedJwtToken = function () {
-  return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE,
+userSchema.methods.getSignedJwtToken = function (): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is not defined");
+  }
+  return jwt.sign({ id: this._id }, Buffer.from(secret), {
+    expiresIn: 30 * 24 * 60 * 60, // 30 days in seconds
   });
 };
 
 // Match user entered password to hashed password in database
-userSchema.methods.matchPassword = async function (enteredPassword) {
+userSchema.methods.matchPassword = async function (
+  enteredPassword: string
+): Promise<boolean> {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
 // Generate and hash password token
-userSchema.methods.getResetPasswordToken = function () {
+userSchema.methods.getResetPasswordToken = function (): string {
   // Generate token
   const resetToken = crypto.randomBytes(20).toString("hex");
 
@@ -88,9 +95,9 @@ userSchema.methods.getResetPasswordToken = function () {
     .digest("hex");
 
   // Set expire
-  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+  this.resetPasswordExpire = new Date(Date.now() + 10 * 60 * 1000);
 
   return resetToken;
 };
 
-module.exports = mongoose.model("User", userSchema);
+export default mongoose.model<IUser>("User", userSchema);

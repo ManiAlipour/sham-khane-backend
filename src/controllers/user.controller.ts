@@ -1,13 +1,44 @@
-const { validationResult } = require("express-validator");
-const User = require("../models/user.model");
+import { validationResult } from "express-validator";
+import type {
+  Request,
+  Response,
+  NextFunction,
+} from "express-serve-static-core";
+import User from "../models/user.model";
+import { IUser } from "../types/models";
+
+interface UserQuery {
+  page?: string;
+  limit?: string;
+  role?: "user" | "admin";
+  isEmailVerified?: string;
+  sort?: string;
+}
+
+interface UserUpdateBody {
+  name?: string;
+  email?: string;
+  phoneNumber?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  };
+}
 
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private/Admin
-exports.getUsers = async (req, res, next) => {
+export const getUsers = async (
+  req: Request<Record<string, never>, unknown, unknown, UserQuery>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
+    const page = parseInt(req.query.page || "1", 10);
+    const limit = parseInt(req.query.limit || "10", 10);
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
     const total = await User.countDocuments();
@@ -38,7 +69,10 @@ exports.getUsers = async (req, res, next) => {
     const users = await query;
 
     // Pagination result
-    const pagination = {};
+    const pagination: {
+      next?: { page: number; limit: number };
+      prev?: { page: number; limit: number };
+    } = {};
 
     if (endIndex < total) {
       pagination.next = {
@@ -68,15 +102,20 @@ exports.getUsers = async (req, res, next) => {
 // @desc    Get single user
 // @route   GET /api/users/:id
 // @access  Private/Admin
-exports.getUser = async (req, res, next) => {
+export const getUser = async (
+  req: Request<{ id: string }, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findById(req.params.id).select("-password");
 
     if (!user) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "User not found",
       });
+      return;
     }
 
     res.status(200).json({
@@ -91,35 +130,42 @@ exports.getUser = async (req, res, next) => {
 // @desc    Update user
 // @route   PUT /api/users/:id
 // @access  Private/Admin
-exports.updateUser = async (req, res, next) => {
+export const updateUser = async (
+  req: Request<{ id: string }, unknown, UserUpdateBody>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const user = await User.findById(req.params.id);
 
     if (!user) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "User not found",
       });
+      return;
     }
 
     // Prevent admin role modification through this route
-    if (req.body.role) {
-      delete req.body.role;
+    if ("role" in req.body) {
+      delete (req.body as any).role;
     }
 
     // Check if email is being changed and if it's already in use
     if (req.body.email && req.body.email !== user.email) {
       const emailExists = await User.findOne({ email: req.body.email });
       if (emailExists) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Email already in use",
         });
+        return;
       }
     }
 
@@ -141,29 +187,35 @@ exports.updateUser = async (req, res, next) => {
 // @desc    Delete user
 // @route   DELETE /api/users/:id
 // @access  Private/Admin
-exports.deleteUser = async (req, res, next) => {
+export const deleteUser = async (
+  req: Request<{ id: string }, unknown, unknown>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const user = await User.findById(req.params.id);
 
     if (!user) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "User not found",
       });
+      return;
     }
 
     // Prevent deleting the last admin
     if (user.role === "admin") {
       const adminCount = await User.countDocuments({ role: "admin" });
       if (adminCount <= 1) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Cannot delete the last admin user",
         });
+        return;
       }
     }
 
-    await user.remove();
+    await user.deleteOne();
 
     res.status(200).json({
       success: true,
@@ -177,27 +229,41 @@ exports.deleteUser = async (req, res, next) => {
 // @desc    Update user profile
 // @route   PUT /api/users/profile/update
 // @access  Private
-exports.updateProfile = async (req, res, next) => {
+export const updateProfile = async (
+  req: Request & { user?: IUser },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Not authorized",
+      });
+      return;
     }
 
     // Check if email is being changed and if it's already in use
     if (req.body.email && req.body.email !== req.user.email) {
       const emailExists = await User.findOne({ email: req.body.email });
       if (emailExists) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Email already in use",
         });
+        return;
       }
     }
 
     // Prevent role modification through this route
-    if (req.body.role) {
-      delete req.body.role;
+    if ("role" in req.body) {
+      delete (req.body as any).role;
     }
 
     const updatedUser = await User.findByIdAndUpdate(

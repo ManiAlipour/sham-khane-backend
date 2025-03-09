@@ -1,12 +1,37 @@
-const { validationResult } = require("express-validator");
-const Cart = require("../models/cart.model");
-const Product = require("../models/product.model");
-const Discount = require("../models/discount.model");
+import { validationResult } from "express-validator";
+import type {
+  Request,
+  Response,
+  NextFunction,
+} from "express-serve-static-core";
+import Cart, { ICartItem } from "../models/cart.model";
+import Product from "../models/product.model";
+import Discount from "../models/discount.model";
+import type { IUser } from "../types/models";
+
+interface CartItemBody {
+  productId: string;
+  quantity: number;
+}
+
+interface DiscountBody {
+  code: string;
+}
+
+interface AuthenticatedRequest extends Omit<Request, "user"> {
+  user: {
+    id: IUser["_id"];
+  };
+}
 
 // @desc    Get user's cart
 // @route   GET /api/cart
 // @access  Private
-exports.getCart = async (req, res, next) => {
+export const getCart = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     let cart = await Cart.findOne({ user: req.user.id }).populate({
       path: "items.product",
@@ -32,11 +57,16 @@ exports.getCart = async (req, res, next) => {
 // @desc    Add item to cart
 // @route   POST /api/cart/items
 // @access  Private
-exports.addToCart = async (req, res, next) => {
+export const addToCart = async (
+  req: AuthenticatedRequest & { body: CartItemBody },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const { productId, quantity } = req.body;
@@ -44,17 +74,19 @@ exports.addToCart = async (req, res, next) => {
     // Check if product exists and has enough stock
     const product = await Product.findById(productId);
     if (!product) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Product not found",
       });
+      return;
     }
 
     if (product.stock < quantity) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "Not enough stock available",
       });
+      return;
     }
 
     // Get user's cart or create new one
@@ -68,7 +100,7 @@ exports.addToCart = async (req, res, next) => {
 
     // Check if product already in cart
     const itemIndex = cart.items.findIndex(
-      (item) => item.product.toString() === productId
+      (item: ICartItem) => item.product.toString() === productId
     );
 
     if (itemIndex > -1) {
@@ -83,7 +115,7 @@ exports.addToCart = async (req, res, next) => {
         quantity,
         price: product.price,
         totalPrice: quantity * product.price,
-      });
+      } as ICartItem);
     }
 
     await cart.save();
@@ -106,41 +138,52 @@ exports.addToCart = async (req, res, next) => {
 // @desc    Update cart item quantity
 // @route   PUT /api/cart/items/:itemId
 // @access  Private
-exports.updateCartItem = async (req, res, next) => {
+export const updateCartItem = async (
+  req: AuthenticatedRequest & {
+    body: CartItemBody;
+    params: { itemId: string };
+  },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const { quantity } = req.body;
     const cart = await Cart.findOne({ user: req.user.id });
 
     if (!cart) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Cart not found",
       });
+      return;
     }
 
     const itemIndex = cart.items.findIndex(
-      (item) => item._id.toString() === req.params.itemId
+      (item: ICartItem) => item._id?.toString() === req.params.itemId
     );
 
     if (itemIndex === -1) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Item not found in cart",
       });
+      return;
     }
 
     // Check product stock
     const product = await Product.findById(cart.items[itemIndex].product);
-    if (product.stock < quantity) {
-      return res.status(400).json({
+    if (!product || product.stock < quantity) {
+      res.status(400).json({
         success: false,
         message: "Not enough stock available",
       });
+      return;
     }
 
     cart.items[itemIndex].quantity = quantity;
@@ -166,19 +209,24 @@ exports.updateCartItem = async (req, res, next) => {
 // @desc    Remove item from cart
 // @route   DELETE /api/cart/items/:itemId
 // @access  Private
-exports.removeFromCart = async (req, res, next) => {
+export const removeFromCart = async (
+  req: AuthenticatedRequest & { params: { itemId: string } },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const cart = await Cart.findOne({ user: req.user.id });
 
     if (!cart) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Cart not found",
       });
+      return;
     }
 
     cart.items = cart.items.filter(
-      (item) => item._id.toString() !== req.params.itemId
+      (item: ICartItem) => item._id?.toString() !== req.params.itemId
     );
 
     await cart.save();
@@ -201,15 +249,20 @@ exports.removeFromCart = async (req, res, next) => {
 // @desc    Clear cart
 // @route   DELETE /api/cart
 // @access  Private
-exports.clearCart = async (req, res, next) => {
+export const clearCart = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const cart = await Cart.findOne({ user: req.user.id });
 
     if (!cart) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Cart not found",
       });
+      return;
     }
 
     cart.items = [];
@@ -232,11 +285,16 @@ exports.clearCart = async (req, res, next) => {
 // @desc    Apply discount to cart
 // @route   POST /api/cart/discount
 // @access  Private
-exports.applyDiscount = async (req, res, next) => {
+export const applyDiscount = async (
+  req: AuthenticatedRequest & { body: DiscountBody },
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      res.status(400).json({ errors: errors.array() });
+      return;
     }
 
     const { code } = req.body;
@@ -249,46 +307,28 @@ exports.applyDiscount = async (req, res, next) => {
     });
 
     if (!discount) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "Invalid or expired discount code",
       });
+      return;
     }
 
     const cart = await Cart.findOne({ user: req.user.id });
-
     if (!cart) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Cart not found",
       });
-    }
-
-    // Calculate discount amount
-    let discountAmount = 0;
-    if (discount.type === "percentage") {
-      discountAmount = (cart.subtotal * discount.value) / 100;
-    } else {
-      discountAmount = discount.value;
-    }
-
-    // Apply maximum discount if applicable
-    if (discount.maxDiscount && discountAmount > discount.maxDiscount) {
-      discountAmount = discount.maxDiscount;
+      return;
     }
 
     cart.discount = {
-      code,
-      amount: discountAmount,
+      code: discount.code,
+      amount: discount.amount,
     };
 
     await cart.save();
-
-    // Populate product details
-    await cart.populate({
-      path: "items.product",
-      select: "name price images stock",
-    });
 
     res.status(200).json({
       success: true,
